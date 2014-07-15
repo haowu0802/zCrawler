@@ -24,7 +24,7 @@ if __name__ == "__main__":
     
     crawler = zCrawler()    
     crawler.getHotels()
-    
+        
     print crawler.hotelList
     
     time.sleep(1)
