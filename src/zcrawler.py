@@ -4,16 +4,43 @@ __author__="haowu"
 __date__ ="$Jul 15, 2014 4:35:27 PM$"
 
 from ghost import Ghost
-import urllib2 
-import json
-#import simplejson
-import time
-import MySQLdb
-import sys
+import MySQLdb, urllib2, socket, os, sys, time, json, re
 reload(sys)
 sys.setdefaultencoding('utf-8')
-import socket
-import re
+
+def isset(v):
+    """
+    check variable is set
+    """
+    try :  
+        type (eval(v))  
+    except :  
+        return   0   
+    else :  
+        return   1 
+
+def parseInput(argv):    
+    """
+    parse input arguments to a dict of params
+    """
+    inputParams = {}
+    for arg in argv:        
+        param = arg.split('=')                
+        if len(param)>1:
+            inputParams[param[0]] = param[1]
+    return inputParams
+
+
+def validateInputParams(inputParams):    
+    """
+    check required params exist
+    """
+    if "checkin" not in inputParams:
+        print 'missing checkin'
+        exit(1)
+    if "checkout" not in inputParams:    
+        print 'missing checkout'
+        exit(1)
 
 class priceHotel:        
     def __init__(self, packageId, lowestPrice, targetUrl, targetSite):
@@ -30,16 +57,30 @@ class zCrawler:
         self.hotelList = []
         self.ghost = Ghost()
         self.ghost.wait_timeout = 180
-        print 'Ghost.wait_timeout:' , self.ghost.wait_timeout        
+        print 'Ghost.wait_timeout:' , self.ghost.wait_timeout     
+        
+    def savePrice(self, priceHotel):    
+        """
+        save price of hotel to db
+        """
+        
+        return 0
         
     def setDates(self, checkIn, checkOut):
+        """
+        set crawler to use checkin/out dates from inputParams
+        """
         self.checkIn = checkIn
         self.checkOut = checkOut
         return 0
     
     def setRootUrl(self, rootUrlName):
+        """
+        set the root url of the target site for current crawler task
+        """
         if(rootUrlName == 'ctrip'):
             self.rootUrl = 'http://hotels.ctrip.com/'
+            self.targetSite = rootUrlName
         return 0
     
     def getPriceRegex(self,text):
@@ -49,7 +90,7 @@ class zCrawler:
         #print type(str(result))
         regDig = ur"\d+"
         result = re.findall(regDig,str(result)) 
-        print result[0]
+        #print result[0]
         return result[0]
         
     def getHotels(self):
@@ -58,8 +99,8 @@ class zCrawler:
         #cur = db.cursor()
         cur = db.cursor (cursorclass = MySQLdb.cursors.DictCursor)        
         #sqlWhere = ' WHERE p.id IN (18,19,20) '
-        #sqlWhere = ' WHERE p.id IN (18,36,461,403) '
-        sqlWhere = ' WHERE p.id IN (18) '
+        sqlWhere = ' WHERE p.id IN (18,36,461,403) '
+        #sqlWhere = ' WHERE p.id IN (18) '
         cur.execute('SELECT p.id, p.name_en, p.name_cn, pm.city  FROM package as p LEFT JOIN package_meta as pm ON p.id = pm.package_id '+ sqlWhere +' LIMIT 10;')
         for data in cur.fetchall():
             #print type(data)
@@ -67,6 +108,17 @@ class zCrawler:
             self.hotelList.append(data);
                             
         return 0
+    
+    def isNoResult(self,html):
+        priceSelectorJs = """(function () {
+                        var element = document.querySelector(".search_noresult strong").textContent;               
+                        return element;
+                    })();"""
+
+        result, resources = self.ghost.evaluate(priceSelectorJs);
+        print result
+        return result
+        
     
     def getLowestPrice(self,html):
         priceSelectorJs = """(function () {
@@ -84,7 +136,7 @@ class zCrawler:
                         var element = document.querySelector('.hotel_list_item').id
                         return element;
                     })();"""        
-        hotelId, resources = self.ghost.evaluate(hotelIdSelectorJs);                
+        hotelId, resources = self.ghost.evaluate(hotelIdSelectorJs);                   
         #print hotelId, self.checkIn, self.checkOut
         # generate hotel page url
         detailPageUrl = self.rootUrl + 'international/' + str(hotelId) + '.html?CheckIn=' + self.checkIn + '&CheckOut=' + self.checkOut + '&Rooms=1'
@@ -98,11 +150,13 @@ class zCrawler:
         
         #  &Price=1683&
         return self.getPriceRegex(self.ghost.content)
-                    
-    def crackCtrip(self,hotel):        
+         
+    def getCtripSearchUrl(self):
+        #domestic
+        #http://hotels.ctrip.com/Domestic/Tool/AjaxIndexCityNew.aspx?keyword=shanghai
         # getting ctrip's location id from their API                
         urlApi = self.rootUrl + 'international/Tool/cityFilter_J.ashx?IsUseNewStyle=T&keyword='+hotel['city']
-        urlData = urllib2.urlopen(urlApi)          
+        urlData = urllib2.urlopen(urlApi)   
         urlDataStr = urlData.read()  
         #print type(urlDataStr)         
         a = urlDataStr.split('@')   
@@ -110,10 +164,10 @@ class zCrawler:
         #print unicode(a[1],'utf-8')
         for b in a:
             b = unicode(b,'utf-8')
-        #a[1] = a[1].encode('gbk')
+        #a[1] = a[1].encode('gbk')                                                                                                                                                                                                                                       
         del a[0]
         del a[-1]
-        #print a[0]
+        #print a[0]`1
         c = a[0].split('|')
         #print c
         #print c[3]
@@ -122,47 +176,17 @@ class zCrawler:
         locationName = c[4]
         locationId = c[3]
         hotelName = hotel['name_en']
-        urlIntl = self.rootUrl + 'international/'+str(locationName)+str(locationId)+'/k2'+hotelName
+        return self.rootUrl + 'international/'+str(locationName)+str(locationId)+'/k2'+hotelName
+                    
+    def crackCtrip(self,hotel):        
+        # get the url for searching a hotel
+        urlSearch = self.getCtripSearchUrl
         #print urlIntl
         
-        
-        #urlIntl = 'http://hotels.ctrip.com/international/'
-        #urlIntl = 'http://english.ctrip.com/hotels/#ctm_ref=nb_hl_top'
-        #urlIntl = 'http://english.ctrip.com/hotels/list?city=723&checkin=08-01-2014&checkout=08-02-2014&hotelname=AYANA%20Resort%20and%20Spa'
-        #urlIntl = 'http://english.ctrip.com/hotels/list?city=723&checkin=07-18-2014&checkout=07-26-2014&hotelname=AYANA%20Resort%20and%20Spa&searchboxArg=t&optionId=723&optionType=globalhotel_city'
-        #urlIntl = 'http://hotels.ctrip.com/international/bali723/k2AYANA%20Resort%20and%20Spa'        
+
         
         page, resources = self.ghost.open(urlIntl)
-        
-        #jsCity = 'document.getElementById("txtCity")._lastvalue="Bali"';
-        #self.ghost.set_field_value("input[name=cityName]", hotel['city'])
-        #self.ghost.set_field_value("input[id=hotelsCity]", "Bali, Indonesia")
-        #self.ghost.set_field_value("input[id=hotelsCityHidden]", "723")
-        #self.ghost.set_field_value("input[id=optionId]", "723")
-        #self.ghost.set_field_value("input[id=optionType]", "globalhotel_city")      
-        #self.ghost.set_field_value("input[id=lat]", "-8.409518")  
-        #self.ghost.set_field_value("input[id=lon]", "115.18892")  
-        #self.ghost.set_field_value("input[id=displayValue]", "Bali, Indonesia")
-        #self.ghost.evaluate(jsCity);        
-        #self.ghost.set_field_value("input[name=txtCity]", hotel['city'])
-        #self.ghost.set_field_value("input[name=cityName]", "巴厘岛", False )        
-        
-        #self.ghost.set_field_value("input[name=checkIn]", checkIn)
-        #self.ghost.set_field_value("input[id=txtCheckIn]", checkIn)
-        #self.ghost.set_field_value("input[name=StartTime]", checkIn)
-        
-        #self.ghost.set_field_value("input[name=checkOut]", checkOut)
-        #self.ghost.set_field_value("input[id=txtCheckOut]", checkOut)
-        #self.ghost.set_field_value("input[name=DepTime]", checkOut)        
-        
-        #self.ghost.set_field_value("input[id=txtHotelNameKeyWords]", hotel['name_en'])
-        #self.ghost.set_field_value("input[name=keywordNew]", hotel['name_en'])
-        #self.ghost.set_field_value("input[name=txtKeyword]", hotel['name_en'])
-        
-        #self.ghost.fire_on("listForm", "submit", expect_loading=True)
-        #self.ghost.fire_on("J_searchForm", "submit", expect_loading=True)
-        #self.ghost.click("#btnSearch_SearchBox")        
-        #self.ghost.wait_for_selector('.hotel_list_item')
+
         
         '''
         self.ghost.sleep(5)
@@ -170,17 +194,25 @@ class zCrawler:
         print lowestPrice
         '''
         
-        lowestPrice = self.getLowestPriceFromDetail(self.ghost.content)        
-        print lowestPrice
+        noResultFlag = self.isNoResult(self.ghost.content)
+        if(noResultFlag == None):
+            lowestPrice = self.getLowestPriceFromDetail(self.ghost.content)        
+        else:
+            lowestPrice = 'hotel no found in ' + self.targetSite
+        
+        #print lowestPrice
         
         #priceHotel = priceHotel(hotel['id'],lowestPrice,urlIntl,'ctrip')
         priceHotel = {
             'package_id': hotel['id'],
             'lowest_price' : lowestPrice,
             'target_site' : 'ctrip',
-            'target_url' : urlIntl,
+            'target_url' : urlSearch,
+            'check_in' : self.checkIn,
+            'check_out' : self.checkOut,
         }
         print priceHotel
+        self.savePrice(priceHotel)
         
         pageContent = self.ghost.content
         fileName = "testwhctripDetails_"+str(hotel['id'])+".html"
@@ -191,14 +223,20 @@ class zCrawler:
         
         return 0
     
+    def crackQunar(self):
+        return 0
 
-if __name__ == "__main__":    
-        
-    checkIn = '2014-08-10'
-    checkOut = '2014-08-12'
+"""
+main()
+"""
+if __name__ == "__main__":      
+    inputParams = parseInput(sys.argv)
+    print "inputParams:",inputParams        
+    validateInputParams(inputParams)
     print "zCrawlerStart"
-    timeStart = time.time()
     
+    timeStart = time.time()
+        
     ### print ip ###
     #localIP = socket.gethostbyname(socket.gethostname())#得到本地ip
     #print (localIP)
@@ -216,7 +254,7 @@ if __name__ == "__main__":
     crawler.getHotels()
     
     # set checkin/out dates
-    crawler.setDates(checkIn, checkOut)
+    crawler.setDates(inputParams['checkin'], inputParams['checkout'])
     
     # set root url
     crawler.setRootUrl('ctrip')
