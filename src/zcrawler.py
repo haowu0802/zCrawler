@@ -29,7 +29,7 @@ def peek(*p):
     for debuging
     """
     for var in p:
-        print var        
+        print type(var),var        
 
 def isset(v):
     """
@@ -163,7 +163,7 @@ class zCrawler:
         set crawler to use checkin/out dates from inputParams
         """
         self.checkIn = checkIn
-        self.checkOut = checkOut
+        self.checkOut = checkOut        
         return 0
     
     def setRootUrl(self, rootUrlName):
@@ -518,16 +518,54 @@ class zCrawler:
         detail = self.queryCtrip(detail)
         detail = self.queryZanadu(detail)
         
-        time.sleep(1)
+        #time.sleep(1)
         return detail
     
     def exportToCsv(self):
-        csvWhereSql = ' '
-        csvSql = 'SELECT p.name_en, crawler_hotel.lowest_price, crawler_hotel.target_site, crawler_hotel.query_date, crawler_hotel.target_url,crawler_hotel.check_in_date, crawler_hotel.check_out_date FROM package as p RIGHT JOIN crawler_hotel ON p.id = crawler_hotel.package_id '+ csvWhereSql ;        
+        fileName = 'priceParity'+str(self.queryDate)+'.csv'
+        csvWhereSql = ' WHERE `query_date` = "' + str(self.queryDate) + '" AND `check_in_date`="'+ str(self.checkIn) + '" AND `check_out_date`="' + str(self.checkOut) + '"'
+        csvSql = 'SELECT crawler_hotel.package_id, p.name_en, crawler_hotel.lowest_price, crawler_hotel.target_site, crawler_hotel.target_url, crawler_hotel.query_date, crawler_hotel.check_in_date, crawler_hotel.check_out_date FROM package as p RIGHT JOIN crawler_hotel ON p.id = crawler_hotel.package_id '+ csvWhereSql ;                
         self.cur.execute(csvSql)
-        csvData = []        
-        for row in self.cur.fetchall():                
-            if(row['lowest_price']=='NP'):
+        csvData = {}
+        #csvData.append(['Hotel Name Eng', 'Target Site', 'Lowest Price','Check In Date','Check Out Date','Query Date','Target Url'])
+        csvData[0] = {
+            'HotelName': 'HotelName',
+            'CheckInDate' : 'CheckInDate',
+            'CheckOutDate' : 'CheckOutDate',
+            'QueryDate' : 'QueryDate',
+            'TargetSiteZanadu' : 'TargetSite',
+            'LowestPriceZanadu' : 'LowestPriceZanadu',
+            'TargetUrlZanadu' : 'TargetUrlZanadu',
+            'TargetSiteCtrip' : 'TargetSite',
+            'LowestPriceCtrip' : 'LowestPriceCtrip',
+            'TargetUrlCtrip' : 'TargetUrlCtrip',
+            'TargetSiteQunar' : 'TargetSite',
+            'LowestPriceQunar' : 'LowestPriceQunar',
+            'TargetUrlQunar' : 'TargetUrlQunar',            
+        }
+        for row in self.cur.fetchall():   
+            #peek(row,csvData)            
+            if(csvData.get(str(row['package_id'])) == None):
+                csvData[str(row['package_id'])] = {}
+                
+            csvData[str(row['package_id'])]['HotelName'] = row['name_en']
+            csvData[str(row['package_id'])]['CheckInDate'] = str(row['check_in_date'])
+            csvData[str(row['package_id'])]['CheckOutDate'] = str(row['check_out_date'])
+            csvData[str(row['package_id'])]['QueryDate'] = str(row['query_date'])
+            if(row['target_site'] == 'zanadu'):
+                csvData[str(row['package_id'])]['TargetSiteZanadu'] = row['target_site']
+                csvData[str(row['package_id'])]['LowestPriceZanadu'] = row['lowest_price']
+                csvData[str(row['package_id'])]['TargetUrlZanadu'] = row['target_url']
+            elif(row['target_site'] == 'ctrip'):
+                csvData[str(row['package_id'])]['TargetSiteCtrip'] = row['target_site']
+                csvData[str(row['package_id'])]['LowestPriceCtrip'] = row['lowest_price']
+                csvData[str(row['package_id'])]['TargetUrlCtrip'] = row['target_url']
+            elif(row['target_site'] == 'qunar'):
+                csvData[str(row['package_id'])]['TargetSiteQunar'] = row['target_site']
+                csvData[str(row['package_id'])]['LowestPriceQunar'] = row['lowest_price']
+                csvData[str(row['package_id'])]['TargetUrlQunar'] = row['target_url']
+            
+            '''if(row['lowest_price']=='NP'):
                 row['lowest_price'] = 'Price not found in ctrip'
             elif(row['lowest_price']=='NF'):
                 row['lowest_price'] = 'Hotel not found in ctrip'
@@ -539,18 +577,16 @@ class zCrawler:
                 row['check_out_date'],
                 row['query_date'],
                 row['target_url']
-            ]); 
-                
-        print 'writing...'
-        csvfile = file('csv_test_ctrip.csv', 'wb')       
-        writer = csv.writer(csvfile)
-        writer.writerow(['Hotel Name Eng', 'Target Site', 'Lowest Price','Check In Date','Check Out Date','Query Date','Target Url'])        
+            ]); '''
+        peek(csvData)
+        exit(0)
+        peek('writing to file ...',fileName )
+        csvfile = file(fileName, 'wb')       
+        writer = csv.writer(csvfile)             
         writer.writerows(csvData)
         csvfile.close()
-        #with open('testwh.csv', 'wb') as csvfile:
-            #spamwriter = csv.writer(csvfile,dialect='excel')
-            #print spamwriter.writerow(['a', '1', '1', '2', '2'])
-        return 0
+        peek('Writting complete...')
+        exit(0)
 """
 main()
 """
@@ -580,14 +616,13 @@ if __name__ == "__main__":
     
     #init
     crawler = zCrawler()
-    
-    ### force export excel without crawling     
-    #if (inputParams.get('export')>0):        
-        #crawler.exportToCsv()        `````
-    #exit(0)    
-    
+        
     # set checkin/out dates
     crawler.setDates(inputParams['checkin'], inputParams['checkout'])
+    
+    ### force export excel without crawling      
+    if (inputParams.get('export') > 0 ):        
+        crawler.exportToCsv()                        
                     
     # get list of hotel
     crawler.getHotels()    
@@ -607,3 +642,4 @@ if __name__ == "__main__":
             peek('Hotels queried ... ',countHotel)
                         
     print "Done...TimeElaspsed:",time.time()-timeStart
+    crawler.exportToCsv()
