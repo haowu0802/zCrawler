@@ -5,9 +5,24 @@ __date__ ="$Jul 15, 2014 4:35:27 PM$"
 
 from ghost import Ghost
 from datetime import *
-import MySQLdb, urllib2, socket, os, sys, time, json, re, csv
+import MySQLdb, urllib2, socket, os, sys, time, json, re, csv, gc
 reload(sys)
 sys.setdefaultencoding('utf-8')
+
+def dump_garbage():
+    """
+    show garbage 
+    """
+        
+    # force collection
+    print "\nGARBAGE:"
+    gc.collect()
+
+    print "\nGARBAGE OBJECTS:"
+    for x in gc.garbage:
+        s = str(x)
+        if len(s) > 80: s = s[:80]
+        print type(x),"\n  ", s
 
 def peek(*p):
     """
@@ -61,7 +76,7 @@ class zCrawler:
         self.db = MySQLdb.connect(db='zanadu_db',host='127.0.0.1',user='root',passwd='',charset='utf8')        
         #self.cur = self.db.cursor()
         self.cur = self.db.cursor (cursorclass = MySQLdb.cursors.DictCursor)   
-        self.timeout = 60
+        self.timeout = 30
         self.queryDate = str(date.today())
         self.hotelList = {}
         self.ghost = Ghost()
@@ -77,9 +92,9 @@ class zCrawler:
         """
         
         """
-        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id > 62 '
-        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (58) '
-        sqlWhere = ' WHERE p.published = 1 AND p.type = 1 '        
+        sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id >= 193 '
+        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (186) '
+        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 '        
         
         #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (36,461,20,403,40,18) '        
         # 27 cannot be searched , city not found
@@ -101,7 +116,8 @@ class zCrawler:
         fp.close()     
         
     def resetGhost(self):
-        self.ghost.exit()
+        #self.ghost.exit()
+        del self.ghost 
         self.ghost = Ghost()
         self.ghost.wait_timeout = self.timeout
         
@@ -332,13 +348,14 @@ class zCrawler:
         """
         
         """        
-        return self.rootUrl['zanadu'] + 'hotel/'+str(detail['package_id'])  
+        #return self.rootUrl['zanadu'] + 'hotel/'+str(detail['package_id'])  
+        return self.rootUrl['zanadu'] + 'hotel/selectRooms?package_id='+str(detail['package_id'])+'&check_in='+str(detail['check_in_date'])+'&check_out='+str(detail['check_out_date'])
                     
     def queryCtrip(self,detail):
         """
         
         """
-        self.resetGhost()
+        #self.resetGhost()
         
         detail['target_site'] = 'ctrip'
         
@@ -395,36 +412,42 @@ class zCrawler:
         """
         
         """
-        self.resetGhost()
+        #self.resetGhost()
         detail['target_site'] = 'zanadu'
         
         # get the url for searching a hotel        
         urlSearch = self.getZanaduDetailUrl(detail)
         
         # assign target_url to detail
-        detail['target_url'] = urlSearch        
+        detail['target_url'] = urlSearch   
+        peek(urlSearch)
         
         #open(self, address, method='get', headers={}, auth=None, body=None,default_popup_response=None, wait=True)            
         self.ghost.open(urlSearch , wait = False) 
         #self.ghost.wait_for_selector('.right price text-right div')
-        self.ghost.wait_for_selector('.controls')
-        #self.ghost.wait_for_text('?')
-        
-        #document.querySelector('strong.small').innerHTML = "";
-        PriceSelectorJs = """(function () {                                                
-                        var element = document.querySelector('strong').textContent;
+        #self.ghost.wait_for_selector('.controls')
+        #self.ghost.wait_for_selector('.col-right.price-night.room-price')
+        try:
+            self.ghost.wait_for_selector('.amount')        
+            PriceSelectorJs = """(function () {                                                
+                        var element = document.querySelector('.amount').textContent;
                         return element;
                     })();"""
-        zPrice, resources = self.ghost.evaluate(PriceSelectorJs);
-        
-        #peek(urlSearch,zPrice)
-        
-        zPrice = zPrice.replace(' ','')
-        zPrice = zPrice.replace(',','')
-        zPrice = zPrice.replace('¥','')                                               
-        lowestPrice = zPrice                                
-                
-        detail['lowest_price'] = lowestPrice
+            zPrice, resources = self.ghost.evaluate(PriceSelectorJs);
+
+            #peek(urlSearch,zPrice)
+
+            zPrice = zPrice.replace(' ','')
+            zPrice = zPrice.replace(',','')
+            #zPrice = zPrice.replace('¥','')                                               
+            lowestPrice = zPrice                                
+
+            detail['lowest_price'] = lowestPrice
+        except:
+        #self.ghost.wait_for_text('?')
+        #self.logPage()
+        #document.querySelector('strong.small').innerHTML = "";
+            detail['lowest_price'] = 'NP'
                                                
         saveStatus = self.savePrice(detail)
         #if(saveStatus):            
@@ -436,7 +459,7 @@ class zCrawler:
         """
         
         """
-        self.resetGhost()
+        #self.resetGhost()
         detail['target_site'] = 'qunar'        
         #http://hs.qunar.com/api/hs/citysug?isMainland=true&city=singapore
         
@@ -445,44 +468,44 @@ class zCrawler:
         except:
             searchUrl = None
         detail['target_url'] = searchUrl  
+        peek(searchUrl)
                         
         self.ghost.open(searchUrl,wait=False)
-        nF = False
         try:
+            self.ghost.wait_for_selector('#js-singleHotel div .position_r') 
+            #self.ghost.wait_for_selector('.position_r') 
+            
+            priceSelectorJs = """(function () {
+                    var element = document.querySelector('#js-singleHotel div .position_r .c4 span a strong').textContent
+                    return element;
+                })();"""
+            price = self.ghost.evaluate(priceSelectorJs);  
+            
+            if(price[0] != None):
+                detail['lowest_price'] = price[0]
+            else:
+                detail['lowest_price'] = 'NP'
+         
+            '''priceSelectorJs = """(function () {
+                    var element = document.querySelector('.position_r .c4 span a strong').textContent
+                    return element;
+                })();"""
+            price = self.ghost.evaluate(priceSelectorJs);'''
             #self.ghost.wait_for_selector('.position_r')
             #self.ghost.wait_for_selector('.namered')  
-            self.ghost.wait_for_selector('#js-singleHotel div .position_r') 
         except:
-            try:
-                self.ghost.wait_for_selector('.position_r') 
-            except:
-                peek('Hotel not found',searchUrl)       
-                nF = True     
-                '''
-                pageContent = self.ghost.content
-                fileName = "testwh.html"
-                fp = open(fileName,'w')
-                fp.write(pageContent)
-                fp.close()
-                peek(detail)
-                exit(0)'''
-                
-        
-        priceSelectorJs = """(function () {
-                        var element = document.querySelector('.position_r .c4 span a strong').textContent
-                        return element;
-                    })();"""
-        price = self.ghost.evaluate(priceSelectorJs);
-        
-        if(price[0] != None):
-            detail['lowest_price'] = price[0]
-        elif(nF == True):
+            peek('Hotel not found',searchUrl)          
             detail['lowest_price'] = 'NF'
-        else:
-            detail['lowest_price'] = 'NP'
-            
+            '''
+            pageContent = self.ghost.content
+            fileName = "testwh.html"
+            fp = open(fileName,'w')
+            fp.write(pageContent)
+            fp.close()
+            peek(detail)
+            exit(0)'''                                
         
-            
+        #self.logPage()
         saveStatus = self.savePrice(detail)
         
         return detail
@@ -531,7 +554,10 @@ class zCrawler:
 """
 main()
 """
-if __name__ == "__main__":       
+if __name__ == "__main__":     
+    
+    #gc.enable()
+    #gc.set_debug(gc.DEBUG_LEAK)
     
     ### input section ###
     inputParams = parseInput(sys.argv)
@@ -571,6 +597,9 @@ if __name__ == "__main__":
     countHotel = 0
     # start getting lowest price for each hotel    
     for packageId,detail in crawler.hotelList.items():        
+        
+        #dump_garbage()
+        
         #crawler.crackCtrip(hotel)
         detail = crawler.queryDetail(detail)
         countHotel = countHotel + 1
