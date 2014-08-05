@@ -29,7 +29,7 @@ def peek(*p):
     for debuging
     """
     for var in p:
-        print type(var),var        
+        print var, '[TYPE]', type(var)
 
 def isset(v):
     """
@@ -92,9 +92,9 @@ class zCrawler:
         """
         
         """
-        sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id >= 193 '
+        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id >= 193 '
         #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (186) '
-        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 '        
+        sqlWhere = ' WHERE p.published = 1 AND p.type = 1 '        
         
         #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (36,461,20,403,40,18) '        
         # 27 cannot be searched , city not found
@@ -546,12 +546,30 @@ class zCrawler:
         for row in self.cur.fetchall():   
             #peek(row,csvData)            
             if(csvData.get(str(row['package_id'])) == None):
-                csvData[str(row['package_id'])] = {}
+                csvData[str(row['package_id'])] = {
+                    'HotelName': '',
+                    'CheckInDate' : '',
+                    'CheckOutDate' : '',
+                    'QueryDate' : '',
+                    'TargetSiteZanadu' : '',
+                    'LowestPriceZanadu' : '',
+                    'TargetUrlZanadu' : '',
+                    'TargetSiteCtrip' : '',
+                    'LowestPriceCtrip' : '',
+                    'TargetUrlCtrip' : '',
+                    'TargetSiteQunar' : '',
+                    'LowestPriceQunar' : '',
+                    'TargetUrlQunar' : '',   
+                }
                 
             csvData[str(row['package_id'])]['HotelName'] = row['name_en']
             csvData[str(row['package_id'])]['CheckInDate'] = str(row['check_in_date'])
             csvData[str(row['package_id'])]['CheckOutDate'] = str(row['check_out_date'])
             csvData[str(row['package_id'])]['QueryDate'] = str(row['query_date'])
+            '''if(row['lowest_price']=='NP'):
+                row['lowest_price'] = 'Price NotFound'
+            elif(row['lowest_price']=='NF'):
+                row['lowest_price'] = 'Hotel NotFound' '''           
             if(row['target_site'] == 'zanadu'):
                 csvData[str(row['package_id'])]['TargetSiteZanadu'] = row['target_site']
                 csvData[str(row['package_id'])]['LowestPriceZanadu'] = row['lowest_price']
@@ -565,10 +583,7 @@ class zCrawler:
                 csvData[str(row['package_id'])]['LowestPriceQunar'] = row['lowest_price']
                 csvData[str(row['package_id'])]['TargetUrlQunar'] = row['target_url']
             
-            '''if(row['lowest_price']=='NP'):
-                row['lowest_price'] = 'Price not found in ctrip'
-            elif(row['lowest_price']=='NF'):
-                row['lowest_price'] = 'Hotel not found in ctrip'
+            '''
             csvData.append([
                 row['name_en'],
                 row['target_site'],
@@ -578,12 +593,30 @@ class zCrawler:
                 row['query_date'],
                 row['target_url']
             ]); '''
-        peek(csvData)
-        exit(0)
+        #peek(csvData.values())
+        
         peek('writing to file ...',fileName )
         csvfile = file(fileName, 'wb')       
         writer = csv.writer(csvfile)             
-        writer.writerows(csvData)
+        for row in csvData.values() :
+            #peek(row)
+            writer.writerow([
+                row['HotelName'],
+                row['CheckInDate'],
+                row['CheckOutDate'],
+                row['QueryDate'],
+                row['TargetSiteZanadu'],
+                row['LowestPriceZanadu'],
+                row['TargetUrlZanadu'],
+                row['TargetSiteCtrip'],
+                row['LowestPriceCtrip'],
+                row['TargetUrlCtrip'],
+                row['TargetSiteQunar'],
+                row['LowestPriceQunar'],
+                row['TargetUrlQunar'],          
+            ])
+            #writer.writerows(csvData)
+            #exit(0)        
         csvfile.close()
         peek('Writting complete...')
         exit(0)
