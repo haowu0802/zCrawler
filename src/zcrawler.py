@@ -5,7 +5,7 @@ __date__ ="$Jul 15, 2014 4:35:27 PM$"
 
 from ghost import Ghost
 from datetime import *
-import MySQLdb, urllib2, socket, os, sys, time, json, re, csv, gc
+import MySQLdb, urllib2, socket, os, sys, time, json, re, csv, gc, datetime
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
@@ -65,13 +65,39 @@ def validateInputParams(inputParams):
         print 'missing checkout'
         exit(1)
         
+class resultPackage:
+    def __init__(self):
+        self.package_id = 0
+        self.name_en = ''
+        self.name_cn = ''
+        self.query_date = ''
+        self.check_in_date = ''
+        self.check_out_date = ''
+        self.sites = {
+            'zanadu':{
+                'lowest_price' : '',
+                'target_url' : '',
+            },
+            'ctrip':{
+                'lowest_price' : '',
+                'target_url' : '',
+            },
+            'qunar':{
+                'lowest_price' : '',
+                'target_url' : '',
+            },
+        }
+    
+    def toList(self):
+        return 0
+        
 class zCrawler:
     """
     main class for the crawler
     """
     def __init__(self):
         """
-        
+            
         """
         self.db = MySQLdb.connect(db='zanadu_db',host='127.0.0.1',user='root',passwd='',charset='utf8')        
         #self.cur = self.db.cursor()
@@ -93,7 +119,7 @@ class zCrawler:
         
         """
         #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id >= 193 '
-        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (186) '
+        #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (17) '
         sqlWhere = ' WHERE p.published = 1 AND p.type = 1 '        
         
         #sqlWhere = ' WHERE p.published = 1 AND p.type = 1 AND p.id IN (36,461,20,403,40,18) '        
@@ -132,7 +158,7 @@ class zCrawler:
         setUpdateSql = 'SET '
         whereSql = ' WHERE '
         for k,v in priceHotel.iteritems():            
-            if(k in ['package_id','name_en','target_url','target_site','lowest_price','query_date','check_in_date','check_out_date']):                
+            if(k in ['package_id','name_en','name_cn','target_url','target_site','lowest_price','query_date','check_in_date','check_out_date']):                
                 setSql = setSql + '`' + str(k) + '`' + '=' + '"' + str(v) + '"' + ', '
             
             if (k in ['lowest_price','target_url'])  :
@@ -142,7 +168,8 @@ class zCrawler:
         whereSql = whereSql.rstrip('AND ')
         insertSql = insertSql + setSql + '`creation_time`=NOW(), `last_update_time`=NOW() '
         updateSql = updateSql + setUpdateSql + '`last_update_time`=NOW() ' + whereSql
-                        
+        
+        #peek(insertSql,updateSql)                
         # try to insert, if exist , update , this depends on the columns to be join indexed
         try:            
             insertResult = self.cur.execute(insertSql)                            
@@ -214,8 +241,13 @@ class zCrawler:
         """
         #http://hotels.ctrip.com/international/14540.html?CheckIn=2014-08-04&CheckOut=2014-08-05&Rooms=1
         # get their hotel id
+        domestic = 0
+        hotelIdContainer = 'hotel_list_item'
+        if(detail['country'] in ['china','China']):
+            domestic = 1
+            hotelIdContainer = 'searchresult_list'
         hotelIdSelectorJs = """(function () {
-                        var element = document.querySelector('.hotel_list_item').id
+                        var element = document.querySelector('."""+hotelIdContainer+"""').id
                         return element;
                     })();"""
         hotelId, resources = self.ghost.evaluate(hotelIdSelectorJs);
@@ -224,21 +256,34 @@ class zCrawler:
             return 'NF' # hotel not found
         
         # generate hotel page url
-        detailPageUrl = self.rootUrl['ctrip'] + 'international/' + str(hotelId) + '.html?CheckIn=' + self.checkIn + '&CheckOut=' + self.checkOut + '&Rooms=1'        
-                
+        if (domestic==0):
+            detailPageUrl = self.rootUrl['ctrip'] + 'international/' + str(hotelId) + '.html?CheckIn=' + self.checkIn + '&CheckOut=' + self.checkOut + '&Rooms=1'        
+        else:
+            detailPageUrl = self.rootUrl['ctrip'] + 'hotel/' + str(hotelId) + '.html?CheckIn=' + self.checkIn + '&CheckOut=' + self.checkOut + '&Rooms=1'        
         # goto hotel detail page with params using GET
         self.ghost.open(detailPageUrl, wait=False)
         
         # wait for detail_price
         try:
-            self.ghost.wait_for_selector('#detail_price dfn')
+            priceContainer = '#detail_price dfn'
+            if (domestic == 1):
+                #priceContainer = '#HideIsNoneLogin'
+                #priceContainer = '&Price='
+                priceContainer = 'hotel.detail'
+                self.ghost.wait_for_text(priceContainer)
+            else:
+                self.ghost.wait_for_selector(priceContainer)
+            
         except Exception,e:
             print '[ERROR]price cannot be found ... ' + str(detailPageUrl)
             print Exception,":",e                                      
             #self.logPage()
             return 'NP' # lowest price not found, usually no room available for selected date interval
         
-        #  &Price=1683&        
+        #  &Price=1683&     
+        
+        #self.logPage()
+        
         return self.getPriceRegex(self.ghost.content)
     
     def getLowestPriceZanadu(self,html):
@@ -274,7 +319,40 @@ class zCrawler:
         
         #  &Price=1683&
         return self.getPriceRegex(self.ghost.content)
-                
+           
+    def getLocationIdCtripIntl(self,locatoinData):
+        a = locatoinData.split('@')                
+        for b in a:
+            b = unicode(b,'utf-8')
+        #a[1] = a[1].encode('gbk')        
+        del a[0]
+        del a[-1]        
+        c = a[0].split('|')        
+
+        #locationName = c[4]
+        if(c[2] != 'city'):
+            locationId = c[5]
+        else:
+            locationId = c[3]   
+        return locationId
+    
+    def getLocationIdCtripDomestic(self,locatoinData):        
+        a = locatoinData.split('@')             
+        #for b in a:
+            #b = unicode(b,'utf-8')
+        #a[1] = a[1].encode('gbk')   
+        
+        del a[0]
+        del a[-1]      
+        
+        c = a[0].split('|')        
+        
+        #if(c[2] != 'city'):
+            #locationId = c[5]
+        #else:
+            #locationId = c[3]   
+        return (str(c[0]) + str(c[2]))
+    
     def getSearchUrlCtrip(self,detail):
         """
         
@@ -282,40 +360,42 @@ class zCrawler:
         #domestic
         #http://hotels.ctrip.com/Domestic/Tool/AjaxIndexCityNew.aspx?keyword=shanghai
         # getting ctrip's location id from their API
+        domestic = 0
+        if(detail['country'] in ['china','China']):
+            domestic = 1
+        
         
         # need to html encode the keyword
+        if(detail['city'] == 'Kamala'):
+            detail['city'] = 'Kamala Sea View'
+        detail['city'] = detail['city'].replace('-','')
         queryKeyword = urllib2.quote(detail['city'])                
-        urlApi = self.rootUrl['ctrip'] + 'international/Tool/cityFilter_J.ashx?IsUseNewStyle=T&keyword=' + queryKeyword                
-        
+        urlApi = self.rootUrl['ctrip'] + 'international/Tool/cityFilter_J.ashx?IsUseNewStyle=T&keyword=' + queryKeyword   
+        if (domestic==1):
+            urlApi = self.rootUrl['ctrip'] + 'Domestic/Tool/AjaxIndexCityNew.aspx?keyword=' + queryKeyword   
+                        
         urlData = urllib2.urlopen(urlApi)
         urlDataStr = urlData.read()   
         
-        #peek(urlApi,urlDataStr)
+        #peek(urlDataStr)        
         
-        a = urlDataStr.split('@')        
-        try:
-            for b in a:
-                b = unicode(b,'utf-8')
-            #a[1] = a[1].encode('gbk')        
-            del a[0]
-            del a[-1]        
-            c = a[0].split('|')        
-
-            #locationName = c[4]
-            if(c[2] != 'city'):
-                locationId = c[5]
-            else:
-                locationId = c[3]       
-        except:
-            peek('Location not found',urlApi, urlDataStr)
-            return None
-        
+        #try:
+        if(domestic == 0):
+            locationId = self.getLocationIdCtripIntl(urlDataStr)
+        else:
+            locationId = self.getLocationIdCtripDomestic(urlDataStr)
+        #except:
+            #peek('Location not found',urlApi, urlDataStr)
+            #return None
+            
         #hotelName to search for should be url encoded
         #hotelName = urllib2.quote(detail['name_en'])
         hotelName = str(detail['name_en'])
         
-        #return self.rootUrl + 'international/'+str(locationName)+str(locationId)+'/k2'+hotelName
-        return self.rootUrl['ctrip'] + 'international/'+str(locationId)+'/k2'+hotelName
+        if(domestic == 0):                 
+            return self.rootUrl['ctrip'] + 'international/'+str(locationId)+'/k2'+hotelName + '?checkin=' +self.checkIn+'&checkout='+self.checkOut
+        else:
+            return self.rootUrl['ctrip'] + 'hotel/'+str(locationId)+'/k1'+hotelName + '?checkin=' +self.checkIn+'&checkout='+self.checkOut
     
     def getSearchUrlQunar(self,detail):
         if(detail['city']=='Bali'):
@@ -392,8 +472,11 @@ class zCrawler:
         if(lowestPrice == 'NF'):            
             #self.logPage()
             peek('Hotel not found ... ',urlSearch)
-                
-        detail['lowest_price'] = lowestPrice
+        else:            
+            countNights = datetime.datetime.strptime(self.checkOut,'%Y-%m-%d') - datetime.datetime.strptime(self.checkIn,'%Y-%m-%d')
+            #peek('nights',countNights.days)
+            detail['lowest_price'] = int(lowestPrice) * int(countNights.days)
+        
                                                 
         saveStatus = self.savePrice(detail)
         #if(saveStatus):            
@@ -420,7 +503,6 @@ class zCrawler:
         
         # assign target_url to detail
         detail['target_url'] = urlSearch   
-        peek(urlSearch)
         
         #open(self, address, method='get', headers={}, auth=None, body=None,default_popup_response=None, wait=True)            
         self.ghost.open(urlSearch , wait = False) 
@@ -468,7 +550,6 @@ class zCrawler:
         except:
             searchUrl = None
         detail['target_url'] = searchUrl  
-        peek(searchUrl)
                         
         self.ghost.open(searchUrl,wait=False)
         try:
@@ -484,8 +565,10 @@ class zCrawler:
             if(price[0] != None):
                 detail['lowest_price'] = price[0]
             else:
+                peek(searchUrl)
                 detail['lowest_price'] = 'NP'
          
+            self.logPage()
             '''priceSelectorJs = """(function () {
                     var element = document.querySelector('.position_r .c4 span a strong').textContent
                     return element;
@@ -585,7 +668,7 @@ class zCrawler:
             
             '''
             csvData.append([
-                row['name_en'],
+                row['name_en'],                
                 row['target_site'],
                 row['lowest_price'],
                 row['check_in_date'],
